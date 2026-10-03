@@ -37,6 +37,10 @@ def find_claimed_identity(text):
     """
     Detect whether the message explicitly mentions
     a trusted person's name.
+
+    IMPORTANT:
+    Merely mentioning a trusted person's name is NOT
+    considered suspicious by itself.
     """
 
     if not text:
@@ -60,11 +64,10 @@ def find_claimed_identity(text):
 
 def find_claimed_role(text):
     """
-    Detect whether the message claims or mentions
-    a role belonging to a trusted identity.
+    Detect whether the message mentions a role belonging
+    to a trusted identity.
 
-    Returns the trusted identity associated with
-    that role.
+    Returns the trusted identity associated with that role.
     """
 
     if not text:
@@ -77,7 +80,6 @@ def find_claimed_role(text):
         role = identity["role"].lower()
 
         if role in text_lower:
-
             return identity
 
     return None
@@ -91,7 +93,6 @@ def analyze_sender_email(sender_email):
     """
     Analyse the sender's email address.
 
-    Important:
     An official organisation domain does NOT automatically
     mean that the sender is a trusted person.
     """
@@ -405,12 +406,19 @@ def calculate_impersonation_risk(
     reasons = []
 
     # ========================================================
-    # EXPLICIT TRUSTED IDENTITY MENTION
+    # TRUSTED IDENTITY MENTION
+    # ========================================================
+    #
+    # IMPORTANT:
+    # Mentioning a trusted identity is NOT itself a threat.
+    #
+    # Therefore:
+    #     NO RISK SCORE IS ADDED HERE.
+    #
+    # We only record it as contextual information.
     # ========================================================
 
     if claimed_identity:
-
-        score += 10
 
         reasons.append(
             f"Trusted identity mentioned: "
@@ -519,6 +527,10 @@ def calculate_impersonation_risk(
     # HIGH-RISK COMBINATIONS
     # ========================================================
 
+    # --------------------------------------------------------
+    # Trusted identity + financial request + urgency
+    # --------------------------------------------------------
+
     if (
         claimed_identity
         and "Financial Request" in categories
@@ -532,6 +544,10 @@ def calculate_impersonation_risk(
             "urgency combination detected."
         )
 
+    # --------------------------------------------------------
+    # Trusted identity + credential request
+    # --------------------------------------------------------
+
     if (
         claimed_identity
         and "Credential Request" in categories
@@ -544,9 +560,14 @@ def calculate_impersonation_risk(
             "to request authentication information."
         )
 
+    # --------------------------------------------------------
+    # Role impersonation + sensitive data
+    # --------------------------------------------------------
+
     if (
         claimed_role
         and role_indicator
+        and role_indicator["type"] == "Role Impersonation"
         and "Sensitive Information Request" in categories
     ):
 
@@ -712,16 +733,19 @@ def analyze_impersonation(
 
     detected_indicators = []
 
+    # Identity mismatch indicators
     detected_indicators.extend(
         identity_indicators
     )
 
+    # Role impersonation indicator
     if role_indicator:
 
         detected_indicators.append(
             role_indicator
         )
 
+    # Suspicious request indicators
     for indicator in request_indicators:
 
         detected_indicators.append({
