@@ -12,6 +12,7 @@ ORGANISATION = {
 
 
 TRUSTED_IDENTITIES = [
+
     {
         "name": "Rahul Mehta",
         "email": "rahul.mehta@apex-demo.example",
@@ -45,5 +46,40 @@ TRUSTED_IDENTITIES = [
         "email": "vikram.singh@apex-demo.example",
         "role": "Security Officer",
         "department": "Security"
+    },
+
+    {
+        "name": "Ananya Rao",
+        "email": "ananya.rao@apex-demo.example",
+        "role": "Operations Manager",
+        "department": "Operations"
+    },
+
+    {
+        "name": "Rohan Verma",
+        "email": "rohan.verma@apex-demo.example",
+        "role": "Legal Counsel",
+        "department": "Legal"
+    },
+
+    {
+        "name": "Karan Malhotra",
+        "email": "karan.malhotra@apex-demo.example",
+        "role": "Procurement Manager",
+        "department": "Procurement"
+    },
+
+    {
+        "name": "Sneha Iyer",
+        "email": "sneha.iyer@apex-demo.example",
+        "role": "System Administrator",
+        "department": "IT"
+    },
+
+    {
+        "name": "Aditya Nair",
+        "email": "aditya.nair@apex-demo.example",
+        "role": "Managing Director",
+        "department": "Executive Management"
     }
 ]
