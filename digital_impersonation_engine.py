@@ -16,6 +16,9 @@ def extract_emails(text):
     Extract email addresses from the message.
     """
 
+    if not text:
+        return []
+
     return re.findall(
         r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
         text
@@ -26,15 +29,20 @@ def find_claimed_identity(text):
     """
     Check whether the message appears to mention
     one of the organisation's trusted identities.
+
+    Returns the matched trusted identity or None.
     """
+
+    if not text:
+        return None
 
     text_lower = text.lower()
 
     for identity in TRUSTED_IDENTITIES:
 
-        name = identity["name"].lower()
+        name = identity.get("name", "").lower().strip()
 
-        if name in text_lower:
+        if name and name in text_lower:
             return identity
 
     return None
@@ -42,17 +50,22 @@ def find_claimed_identity(text):
 
 def find_claimed_role(text):
     """
-    Check whether the message mentions one of the
-    trusted identities' roles.
+    Check whether the message mentions the role of
+    one of the trusted identities.
+
+    Returns the matched trusted identity or None.
     """
+
+    if not text:
+        return None
 
     text_lower = text.lower()
 
     for identity in TRUSTED_IDENTITIES:
 
-        role = identity["role"].lower()
+        role = identity.get("role", "").lower().strip()
 
-        if role in text_lower:
+        if role and role in text_lower:
             return identity
 
     return None
@@ -64,13 +77,16 @@ def find_claimed_role(text):
 
 def analyze_sender_email(sender_email):
     """
-    Compare sender email against the organisation's
-    trusted identities and official domains.
+    Compare the sender email against:
+    - trusted identities
+    - official organisation domains
     """
 
     if not sender_email:
+
         return {
             "sender_provided": False,
+            "email": None,
             "domain": None,
             "trusted_identity": None,
             "domain_match": False
@@ -79,30 +95,44 @@ def analyze_sender_email(sender_email):
     sender_email = sender_email.lower().strip()
 
     if "@" not in sender_email:
+
         return {
             "sender_provided": True,
+            "email": sender_email,
             "domain": None,
             "trusted_identity": None,
             "domain_match": False
         }
 
-    domain = sender_email.split("@")[-1]
+    domain = sender_email.split("@", 1)[1]
 
     trusted_identity = None
 
     for identity in TRUSTED_IDENTITIES:
 
-        if identity["email"].lower() == sender_email:
+        trusted_email = identity.get(
+            "email",
+            ""
+        ).lower().strip()
+
+        if trusted_email == sender_email:
+
             trusted_identity = identity
             break
 
-    domain_match = domain in [
-        d.lower()
-        for d in ORGANISATION["official_domains"]
+    official_domains = [
+        domain_name.lower().strip()
+        for domain_name in ORGANISATION.get(
+            "official_domains",
+            []
+        )
     ]
+
+    domain_match = domain in official_domains
 
     return {
         "sender_provided": True,
+        "email": sender_email,
         "domain": domain,
         "trusted_identity": trusted_identity,
         "domain_match": domain_match
@@ -114,6 +144,13 @@ def analyze_sender_email(sender_email):
 # ============================================================
 
 def detect_suspicious_requests(text):
+    """
+    Detect requests commonly associated with
+    digital impersonation attacks.
+    """
+
+    if not text:
+        return []
 
     text_lower = text.lower()
 
@@ -129,7 +166,11 @@ def detect_suspicious_requests(text):
             "transfer ₹",
             "transfer rs",
             "bank transfer",
-            "payment required"
+            "payment required",
+            "send the payment",
+            "process the payment",
+            "pay the invoice",
+            "make the transfer"
         ],
 
         "Credential Request": [
@@ -144,7 +185,11 @@ def detect_suspicious_requests(text):
             "provide your password",
             "share your pin",
             "send your pin",
-            "share cvv"
+            "share cvv",
+            "send cvv",
+            "provide your login",
+            "send your login details",
+            "share your login details"
         ],
 
         "Sensitive Information Request": [
@@ -154,7 +199,11 @@ def detect_suspicious_requests(text):
             "send the database",
             "share confidential information",
             "send company documents",
-            "send the documents"
+            "send the documents",
+            "share employee information",
+            "send employee information",
+            "send internal documents",
+            "share internal data"
         ],
 
         "Urgency": [
@@ -164,7 +213,9 @@ def detect_suspicious_requests(text):
             "as soon as possible",
             "act now",
             "within 30 minutes",
-            "within an hour"
+            "within an hour",
+            "before the end of the day",
+            "this is urgent"
         ]
     }
 
@@ -194,61 +245,112 @@ def detect_identity_mismatch(
     claimed_identity,
     sender_analysis
 ):
+    """
+    Determine whether the sender actually matches
+    the person being claimed.
+    """
 
     indicators = []
 
     if not claimed_identity:
         return indicators
 
-    trusted_email = claimed_identity["email"].lower()
+    if not sender_analysis.get(
+        "sender_provided",
+        False
+    ):
+        return indicators
 
     sender_identity = sender_analysis.get(
         "trusted_identity"
     )
 
-    if sender_analysis["sender_provided"]:
+    sender_domain = sender_analysis.get(
+        "domain"
+    )
 
-        sender_domain = sender_analysis.get(
-            "domain"
+    claimed_email = claimed_identity.get(
+        "email",
+        ""
+    ).lower().strip()
+
+    claimed_domain = ""
+
+    if "@" in claimed_email:
+        claimed_domain = claimed_email.split(
+            "@",
+            1
+        )[1]
+
+    # --------------------------------------------------------
+    # Exact identity comparison
+    # --------------------------------------------------------
+
+    if sender_identity is None:
+
+        indicators.append(
+            {
+                "type": "Identity Mismatch",
+                "message": (
+                    f"Message appears to represent "
+                    f"{claimed_identity['name']}, but the "
+                    f"sender address does not match the "
+                    f"trusted identity."
+                )
+            }
         )
 
-        trusted_domain = trusted_email.split("@")[-1]
+    else:
 
-        # Sender claims to be trusted person,
-        # but email address is different.
+        sender_identity_name = sender_identity.get(
+            "name",
+            ""
+        )
 
-        if sender_identity is None:
+        claimed_identity_name = claimed_identity.get(
+            "name",
+            ""
+        )
+
+        if (
+            sender_identity_name.lower().strip()
+            != claimed_identity_name.lower().strip()
+        ):
 
             indicators.append(
                 {
                     "type": "Identity Mismatch",
                     "message": (
                         f"Message appears to represent "
-                        f"{claimed_identity['name']}, but the "
-                        f"sender address does not match the "
-                        f"trusted identity."
+                        f"{claimed_identity_name}, but the "
+                        f"sender belongs to "
+                        f"{sender_identity_name}."
                     )
                 }
             )
 
-        # Sender domain differs from trusted identity domain.
+    # --------------------------------------------------------
+    # Domain comparison
+    # --------------------------------------------------------
 
-        if (
-            sender_domain
-            and sender_domain != trusted_domain
-        ):
+    if (
+        sender_domain
+        and claimed_domain
+        and sender_domain.lower()
+        != claimed_domain.lower()
+    ):
 
-            indicators.append(
-                {
-                    "type": "Domain Mismatch",
-                    "message": (
-                        f"Trusted identity uses "
-                        f"{trusted_domain}, but the "
-                        f"message was sent from "
-                        f"{sender_domain}."
-                    )
-                }
-            )
+        indicators.append(
+            {
+                "type": "Domain Mismatch",
+                "message": (
+                    f"Trusted identity uses "
+                    f"{claimed_domain}, but the "
+                    f"message was sent from "
+                    f"{sender_domain}."
+                )
+            }
+        )
 
     return indicators
 
@@ -261,11 +363,18 @@ def detect_role_impersonation(
     claimed_role_identity,
     sender_analysis
 ):
+    """
+    Detect whether somebody appears to be claiming
+    another trusted person's organisational role.
+    """
 
     if not claimed_role_identity:
         return None
 
-    if not sender_analysis["sender_provided"]:
+    if not sender_analysis.get(
+        "sender_provided",
+        False
+    ):
         return None
 
     sender_identity = sender_analysis.get(
@@ -284,6 +393,29 @@ def detect_role_impersonation(
             )
         }
 
+    claimed_name = claimed_role_identity.get(
+        "name",
+        ""
+    ).lower().strip()
+
+    sender_name = sender_identity.get(
+        "name",
+        ""
+    ).lower().strip()
+
+    if claimed_name != sender_name:
+
+        return {
+            "type": "Role Impersonation",
+            "message": (
+                f"Message appears to represent "
+                f"{claimed_role_identity['name']} "
+                f"({claimed_role_identity['role']}), "
+                f"but the sender belongs to "
+                f"{sender_identity['name']}."
+            )
+        }
+
     return None
 
 
@@ -299,17 +431,35 @@ def calculate_impersonation_risk(
     role_indicator,
     request_indicators
 ):
+    """
+    Calculate impersonation risk.
+
+    IMPORTANT:
+    Merely mentioning a trusted identity is NOT a risk.
+
+    Risk is generated by suspicious behaviour,
+    identity mismatch, role mismatch, suspicious
+    requests and urgency.
+    """
 
     score = 0
+
     reasons = []
 
     # --------------------------------------------------------
     # Trusted identity mentioned
     # --------------------------------------------------------
 
-    if claimed_identity:
+    # DO NOT add risk merely because a trusted identity
+    # was mentioned.
+    #
+    # Example:
+    #
+    # Rahul Mehta sends a normal email.
+    #
+    # Mentioning Rahul should contribute 0 risk.
 
-        score += 20
+    if claimed_identity:
 
         reasons.append(
             f"Trusted identity mentioned: "
@@ -317,7 +467,7 @@ def calculate_impersonation_risk(
         )
 
     # --------------------------------------------------------
-    # Sender mismatch
+    # Identity / domain mismatch
     # --------------------------------------------------------
 
     for indicator in identity_indicators:
@@ -380,7 +530,8 @@ def calculate_impersonation_risk(
             score += 20
 
             reasons.append(
-                "Sensitive organisational information requested."
+                "Sensitive organisational "
+                "information requested."
             )
 
         elif category == "Urgency":
@@ -400,6 +551,8 @@ def calculate_impersonation_risk(
         for indicator in request_indicators
     ]
 
+    # Trusted identity + financial request + urgency
+
     if (
         claimed_identity
         and "Financial Request" in categories
@@ -413,6 +566,8 @@ def calculate_impersonation_risk(
             "urgency combination detected."
         )
 
+    # Trusted identity + credential request
+
     if (
         claimed_identity
         and "Credential Request" in categories
@@ -425,22 +580,50 @@ def calculate_impersonation_risk(
             "to request authentication information."
         )
 
-    score = min(score, 100)
+    # Identity mismatch + suspicious request
+
+    if (
+        identity_indicators
+        and len(request_indicators) > 0
+    ):
+
+        score += 10
+
+        reasons.append(
+            "Identity mismatch is combined with "
+            "a suspicious request."
+        )
+
+    # --------------------------------------------------------
+    # Keep score between 0 and 100
+    # --------------------------------------------------------
+
+    score = min(
+        max(score, 0),
+        100
+    )
 
     # --------------------------------------------------------
     # Risk level
     # --------------------------------------------------------
 
     if score >= 75:
+
         risk_level = "High Risk"
 
     elif score >= 40:
+
         risk_level = "Medium Risk"
 
     else:
+
         risk_level = "Low Risk"
 
-    return score, risk_level, reasons
+    return (
+        score,
+        risk_level,
+        reasons
+    )
 
 
 # ============================================================
@@ -451,32 +634,65 @@ def analyze_impersonation(
     message,
     sender_email=None
 ):
+    """
+    Main Digital Impersonation Detection function.
+    """
+
+    # --------------------------------------------------------
+    # Empty message
+    # --------------------------------------------------------
 
     if not message or not message.strip():
 
         return {
-            "status": "No message provided",
-            "risk_level": "Low Risk",
-            "risk_score": 0,
-            "organisation": ORGANISATION["name"],
-            "claimed_identity": None,
-            "claimed_role": None,
-            "sender": sender_email,
-            "detected_indicators": [],
-            "recommendation": (
+
+            "organisation":
+                ORGANISATION["name"],
+
+            "status":
+                "No message provided",
+
+            "risk_level":
+                "Low Risk",
+
+            "risk_score":
+                0,
+
+            "claimed_identity":
+                None,
+
+            "claimed_role":
+                None,
+
+            "sender":
+                sender_email,
+
+            "sender_analysis":
+                {},
+
+            "detected_indicators":
+                [],
+
+            "reasons":
+                [],
+
+            "recommendation":
                 "Provide a message for analysis."
-            )
         }
 
     message = message.strip()
 
     # --------------------------------------------------------
-    # Identity / role extraction
+    # Identity extraction
     # --------------------------------------------------------
 
     claimed_identity = find_claimed_identity(
         message
     )
+
+    # --------------------------------------------------------
+    # Role extraction
+    # --------------------------------------------------------
 
     claimed_role = find_claimed_role(
         message
@@ -491,48 +707,62 @@ def analyze_impersonation(
     )
 
     # --------------------------------------------------------
-    # Suspicious request analysis
+    # Suspicious requests
     # --------------------------------------------------------
 
-    request_indicators = detect_suspicious_requests(
-        message
+    request_indicators = (
+        detect_suspicious_requests(
+            message
+        )
     )
 
     # --------------------------------------------------------
     # Identity mismatch
     # --------------------------------------------------------
 
-    identity_indicators = detect_identity_mismatch(
-        claimed_identity,
-        sender_analysis
+    identity_indicators = (
+        detect_identity_mismatch(
+            claimed_identity,
+            sender_analysis
+        )
     )
 
     # --------------------------------------------------------
     # Role impersonation
     # --------------------------------------------------------
 
-    role_indicator = detect_role_impersonation(
-        claimed_role,
-        sender_analysis
+    role_indicator = (
+        detect_role_impersonation(
+            claimed_role,
+            sender_analysis
+        )
     )
 
     # --------------------------------------------------------
     # Risk calculation
     # --------------------------------------------------------
 
-    score, risk_level, reasons = (
-        calculate_impersonation_risk(
-            claimed_identity,
-            claimed_role,
-            sender_analysis,
-            identity_indicators,
-            role_indicator,
-            request_indicators
-        )
+    (
+        score,
+        risk_level,
+        reasons
+    ) = calculate_impersonation_risk(
+
+        claimed_identity,
+
+        claimed_role,
+
+        sender_analysis,
+
+        identity_indicators,
+
+        role_indicator,
+
+        request_indicators
     )
 
     # --------------------------------------------------------
-    # Combine indicators
+    # Combine detected indicators
     # --------------------------------------------------------
 
     detected_indicators = []
@@ -551,10 +781,13 @@ def analyze_impersonation(
 
         detected_indicators.append(
             {
-                "type": indicator["category"],
-                "message": ", ".join(
-                    indicator["matches"]
-                )
+                "type":
+                    indicator["category"],
+
+                "message":
+                    ", ".join(
+                        indicator["matches"]
+                    )
             }
         )
 
@@ -565,25 +798,29 @@ def analyze_impersonation(
     if score >= 75:
 
         status = (
-            "Potential Digital Impersonation Threat"
+            "Potential Digital "
+            "Impersonation Threat"
         )
 
     elif score >= 40:
 
         status = (
-            "Suspicious Identity Activity Detected"
+            "Suspicious Identity "
+            "Activity Detected"
         )
 
     elif score > 0:
 
         status = (
-            "Low-Level Identity Risk Detected"
+            "Low-Level Identity "
+            "Risk Detected"
         )
 
     else:
 
         status = (
-            "No Immediate Impersonation Threat Detected"
+            "No Immediate Impersonation "
+            "Threat Detected"
         )
 
     # --------------------------------------------------------
@@ -593,23 +830,35 @@ def analyze_impersonation(
     if score >= 75:
 
         recommendation = (
-            "Do not follow the request. Verify the person's "
-            "identity through an official organisational "
-            "communication channel before taking action."
+            "Do not follow the request. "
+            "Verify the person's identity "
+            "through an official organisational "
+            "communication channel before "
+            "taking action."
         )
 
     elif score >= 40:
 
         recommendation = (
-            "Verify the sender's identity and the request "
-            "through an independent official channel."
+            "Verify the sender's identity "
+            "and the request through an "
+            "independent official channel."
+        )
+
+    elif score > 0:
+
+        recommendation = (
+            "Review the detected indicators "
+            "and verify the request through "
+            "an official channel."
         )
 
     else:
 
         recommendation = (
-            "No major impersonation indicators were detected. "
-            "Continue to verify unexpected requests."
+            "No major impersonation indicators "
+            "were detected. Continue to verify "
+            "unexpected requests."
         )
 
     # --------------------------------------------------------
